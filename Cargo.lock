@@ -1017,6 +1017,15 @@ name = "planforge-cplex"
 version = "0.1.0"
 
 [[package]]
+name = "planforge-llm-cvrp"
+version = "0.1.0"
+dependencies = [
+ "planforge",
+ "planforge-sas",
+ "planforge-search",
+]
+
+[[package]]
 name = "planforge-py"
 version = "0.1.0"
 dependencies = [

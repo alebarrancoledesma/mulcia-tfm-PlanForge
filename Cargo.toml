@@ -24,6 +24,7 @@ members = [
     "tutorials/rust-custom-search",
     "tutorials/rust-plugin-binary",
     "tests",
+    "experiments/llm-cvrp-runner",
 ]
 
 resolver = "2"
