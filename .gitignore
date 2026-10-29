@@ -18,8 +18,10 @@ output.sas.reference
 output
 output.sas
 
-# numeric-fd
-experiments/
+# Local experiments are ignored except for the runner required by the TFM.
+/experiments/*
+!/experiments/llm-cvrp-runner/
+!/experiments/llm-cvrp-runner/**
 
 .devenv*
 .direnv

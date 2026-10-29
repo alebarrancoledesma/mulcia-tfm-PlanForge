@@ -1,3 +1,11 @@
+# Adaptación para el TFM
+
+Este fork se utiliza como planificador numérico en Rust para compilar y evaluar las funciones heurísticas generadas durante el TFM.
+
+Se añadió el paquete `experiments/llm-cvrp-runner`, que registra una heurística externa como `llm_001` sin sustituir la CLI ni el motor de búsqueda de PlanForge. El repositorio hermano `mulcia-tfm-hllm-pipeline` copia temporalmente cada candidato sobre el runner, lo compila, ejecuta GBFS y restaura el archivo base; los PDDL y resultados canónicos se encuentran en `mulcia-tfm-artifacts`.
+
+---
+
 # planforge
 
 A grounded numeric planner written in Rust. Accepts PDDL or pre-translated SAS+ input and produces a sequential plan when one exists within the configured resource budget.
@@ -65,7 +73,7 @@ heuristic is an explicit configuration error.
 
 Single-call PDDL pipeline:
 
-    planforge --search 'astar(canonical_domain_abstractions(...))' \
+    planforge --search 'astar(canonical_abstractions::domain(...))' \
               --max-time 30m --max-memory 8G \
               domain.pddl problem.pddl
 
@@ -77,17 +85,34 @@ independent. For example:
       domain.pddl problem.pddl
 
     planforge --restrict-task --search \
-      'astar(scp([domain(max_abstraction_size=1000,max_collection_size=100000)],online=false,partitioning=region,construction_max_time=900))' \
+      'astar(scp([domain_collection(max_states=1000,max_collection_size=100000)],partitioning=region,construction_max_time=900))' \
       domain.pddl problem.pddl
 
     planforge --restrict-task --search \
       'astar(canonical([icaps26_cartesian(pick=min_unwanted,max_time=900)]))' \
       domain.pddl problem.pddl
 
-The `[...]` source-list form is canonical for `max`, `canonical`, `scp`, and
-`fillscp`; the older flat positional source form remains accepted. PDB sources
+The `[...]` source-list form is canonical for `max`, `canonical` and `scp`; the
+older flat positional source form remains accepted. PDB sources
 select their generator explicitly with `patterns=systematic(...)` or
 `patterns=greedy(...)`.
+
+Domain and Cartesian abstractions take the same CEGAR options, by name:
+`max_states`, `max_iterations`, `max_time` (seconds, or `infinity`),
+`combine_labels`, `random_seed`, `flaw_kind=progression|regression`,
+`flaw_scope=first|whole_plan`, `split_kind=concrete|wanted`,
+`split_selection=min_growth|random`, `split_selection_rank` and `debug`;
+`domain(...)` also takes `use_wildcard_plans`. Both default to
+`max_states=100000`, `combine_labels=true`, `random_seed=2011`,
+`flaw_kind=progression`, `flaw_scope=first`, `split_kind=concrete` and
+`split_selection=random`, and start from the trivial abstraction. `domain_collection(...)` and `cartesian_collection(...)` take
+the options of their members, where `max_states` and `max_time` bound each
+member, and the collection options `collection_strategy=standard|per_goal|goal_focused`,
+`variants_per_goal`, `max_collection_size`, `total_max_time`, `progress_states`,
+`alternate_split_kinds`, `single_goal_tasks`, `split_kind` (the members' fixed
+split kind), `random_seed` (the seed members derive theirs from),
+`stagnation_limit`, `blacklist_trigger_percentage` and
+`enable_blacklist_on_stagnation`.
 
 `icaps26_cartesian` accepts `pick=random|min_unwanted|max_unwanted` and requires
 `--restrict-task`. It reproduces the artifact semantics on integer restricted
@@ -107,28 +132,28 @@ Common options:
 - `--search SPEC` — search algorithm with a heuristic configuration. Examples:
   - `astar(blind())`
   - `astar(lmcutnumeric())`
-  - `astar(canonical_domain_abstractions(...))`
-  - `astar(fillSCP(...))`
+  - `astar(canonical(domain(...)))`
   - `astar(numeric_potential(opt=initial_state,max_potential=1e8))`
   - `astar(numeric_potential(opt=diverse_samples,num_heuristics=4,num_samples=100,max_potential=1e8,cache_estimates=true,invalidate_online_cache_on_growth=true),mpd=true)`
-  - `astar(posthoc_optimization(...))` — LP-based dominator of canonical; `pho(...)` is accepted as an alias
+  - `astar(posthoc_optimization(domain_collection(...)))` — LP-based dominator of canonical over the same abstraction sources; `pho(...)` is accepted as an alias
   - `astar(ff())`
   - `gbfs(ff())` — fast non-admissible search
   - `gbfs(lmcutnumeric())`
-- `--max-time DURATION` — wall-clock budget (`30m`, `1h`, `45s`).
+- `--max-time DURATION` — CPU-time budget from process start, including
+  translation and heuristic construction (`30m`, `1h`, `45s`).
 - `--max-memory SIZE` — address-space cap (`8G`, `4096M`).
 - `--max-ground-actions COUNT` — stop translation before it materializes more
-  than this many reachable ground actions (default: 10,000,000).
+  than this many reachable ground actions (default: no limit).
 - `--max-ground-atoms COUNT` — stop translation before its reachability model
-  derives more than this many ground atoms (default: 10,000,000).
+  derives more than this many ground atoms (default: no limit).
 - `--max-grounding-memory SIZE` — approximate memory budget for the ground
   atoms, join tables, reachable facts and ground actions materialized by the
-  translator (default: `4G`).
+  translator (default: no limit; `--max-memory` still bounds the run).
 - `--restrict-task` — convert an SNP task to its restricted representation;
   already restricted tasks are retained unchanged.
 - `--portfolio` — two sequential stages instead of one search: `astar(lmcutnumeric())`
   under a tight budget (`--lmcut-time`, `--lmcut-memory`), then
-  `astar(canonical_domain_abstractions(...))` (`--canonical-construction-time`,
+  `astar(canonical_abstractions::domain(...))` (`--canonical-construction-time`,
   `--canonical-memory`, `--canonical-time`). Each stage is a child `planforge`
   process, so stage 1's limits are enforced and stage 2 starts clean.
 
@@ -144,9 +169,10 @@ Workspace crates:
   Adding a heuristic is a change to `planforge-search` alone: the heuristic's own
   module, and one arm of `heuristic_factory::build_heuristic_from_spec`.
 - `planforge-config-derive` — `#[derive(ApplyOptions)]`, which cannot be merged: a
-  `proc-macro` crate is its own compilation unit. It serves 7 config structs and
-  112 `--search` options, and derives each config's positional-argument order
-  from its field order.
+  `proc-macro` crate is its own compilation unit. It derives each config's
+  positional-argument order from its field order; a config that flattens shared
+  options, such as the CEGAR options domain and Cartesian abstractions share,
+  takes named options only.
 - `planforge-cplex` — small checked native CPLEX ownership and sparse-LP layer.
 - `tests` — integration tests.
 
